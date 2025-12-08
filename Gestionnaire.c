@@ -2,11 +2,10 @@
 #include <string.h>
 #include <time.h>
 #include <sys/wait.h>
-#include <fcntl.h>
 
-// ------------------------------------------------------
-// OUTILS POUR LES CARTES
-// ------------------------------------------------------
+// ---------------------------------------------------------
+// CALCUL DES TÊTES DE BOEUFS
+// ---------------------------------------------------------
 
 int calculerTetes(int numero) {
     if (numero == 55) return 7;
@@ -15,6 +14,10 @@ int calculerTetes(int numero) {
     if (numero % 5 == 0) return 2;
     return 1;
 }
+
+// ---------------------------------------------------------
+// GÉNÉRATION & MÉLANGE DU PAQUET
+// ---------------------------------------------------------
 
 void genererPaquet(Carte *paquet) {
     for (int i = 0; i < NB_CARTES_TOTAL; i++) {
@@ -33,73 +36,75 @@ void melanger(Carte *paquet) {
     }
 }
 
-// ------------------------------------------------------
-// RANGÉES
-// ------------------------------------------------------
+// ---------------------------------------------------------
+// INITIALISATION DES RANGÉES
+// ---------------------------------------------------------
 
-void initialiserRangees(Rangee rangees[], Carte *paquet, int *indice) {
+void initialiserRangees(Rangee r[], Carte *paquet, int *idx) {
     for (int i = 0; i < NB_RANGEES; i++) {
-        rangees[i].taille = 1;
-        rangees[i].cartes[0] = paquet[(*indice)++];
+        r[i].taille = 1;
+        r[i].cartes[0] = paquet[(*idx)++];
     }
 }
 
 void afficherRangeesServeur(Rangee r[]) {
     printf("\n===== RANGÉES =====\n");
     for (int i = 0; i < NB_RANGEES; i++) {
-        printf("R%d: ", i + 1);
+        printf("R%d : ", i + 1);
         for (int j = 0; j < r[i].taille; j++) {
             printf("[%d (%d)] ",
-                   r[i].cartes[j].numero,
-                   r[i].cartes[j].teteBoeufs);
+                r[i].cartes[j].numero,
+                r[i].cartes[j].teteBoeufs
+            );
         }
         printf("\n");
     }
 }
 
-// ------------------------------------------------------
-// GESTION D'UN TOUR
-// ------------------------------------------------------
+// ---------------------------------------------------------
+// OUTILS DE CALCUL
+// ---------------------------------------------------------
 
+int sommeTetes(Rangee *r) {
+    int tot = 0;
+    for (int i = 0; i < r->taille; i++)
+        tot += r->cartes[i].teteBoeufs;
+    return tot;
+}
+
+// Trouve la rangée compatible au plus petit écart
 int trouverRangeeCompatible(Carte c, Rangee r[]) {
-    int meilleur = -1;
+    int idx = -1;
     int ecartMin = 99999;
 
     for (int i = 0; i < NB_RANGEES; i++) {
-        Carte dernier = r[i].cartes[r[i].taille - 1];
-        if (c.numero > dernier.numero) {
-            int ecart = c.numero - dernier.numero;
+        int last = r[i].cartes[r[i].taille - 1].numero;
+        if (c.numero > last) {
+            int ecart = c.numero - last;
             if (ecart < ecartMin) {
                 ecartMin = ecart;
-                meilleur = i;
+                idx = i;
             }
         }
     }
-    return meilleur;
+    return idx;
 }
 
-int sommeTetes(Rangee r) {
-    int s = 0;
-    for (int i = 0; i < r.taille; i++)
-        s += r.cartes[i].teteBoeufs;
-    return s;
+// ---------------------------------------------------------
+// COMMUNICATION (READ/WRITE SIMPLIFIÉS)
+// ---------------------------------------------------------
+
+void envoyerMessage(int fd, Message *m) {
+    write(fd, m, sizeof(Message));
 }
 
-// ------------------------------------------------------
-// COMMUNICATION PROCESSUS
-// ------------------------------------------------------
-
-void envoyerMessage(int fd, Message *msg) {
-    write(fd, msg, sizeof(Message));
+void lireMessage(int fd, Message *m) {
+    read(fd, m, sizeof(Message));
 }
 
-void lireMessage(int fd, Message *msg) {
-    read(fd, msg, sizeof(Message));
-}
-
-// ------------------------------------------------------
-// MAIN GESTIONNAIRE
-// ------------------------------------------------------
+// ---------------------------------------------------------
+// GESTIONNAIRE (PROCESSUS PRINCIPAL)
+// ---------------------------------------------------------
 
 int main(int argc, char *argv[]) {
 
@@ -109,155 +114,190 @@ int main(int argc, char *argv[]) {
     }
 
     int nbJoueurs = atoi(argv[1]);
-    if (nbJoueurs < 2 || nbJoueurs > 10) {
-        printf("Nombre de joueurs invalide (2-10)\n");
+    if (nbJoueurs < 2 || nbJoueurs > MAX_JOUEURS) {
+        printf("Nombre de joueurs invalide.\n");
         return 1;
     }
 
-    int pipesIn[nbJoueurs][2];   // gestionnaire lit ici
-    int pipesOut[nbJoueurs][2];  // gestionnaire écrit ici
+    printf(">>> Démarrage d'une partie avec %d joueurs...\n", nbJoueurs);
+
+    int pipesIn[nbJoueurs][2];   // joueur -> gestionnaire
+    int pipesOut[nbJoueurs][2];  // gestionnaire -> joueur
     pid_t pids[nbJoueurs];
 
-    // --------------------------------------------
-    // CREATION DES PIPES + FORK DES JOUEURS
-    // --------------------------------------------
+    // -----------------------------------------------------
+    // CRÉATION DES PIPES ET LANCEMENT DES PROCESSUS JOUEURS
+    // -----------------------------------------------------
 
-    for (int i = 0; i < nbJoueurs; i++) {
-        pipe(pipesIn[i]);
-        pipe(pipesOut[i]);
+    for (int j = 0; j < nbJoueurs; j++) {
+        pipe(pipesIn[j]);
+        pipe(pipesOut[j]);
 
-        pids[i] = fork();
+        pids[j] = fork();
 
-        if (pids[i] == 0) {
-            // Processus joueur
-            close(pipesIn[i][0]);    // fermé côté lecture gestionnaire
-            close(pipesOut[i][1]);   // fermé côté écriture gestionnaire
+        if (pids[j] == 0) {
 
-            char fd_in_str[10], fd_out_str[10];
-            sprintf(fd_in_str, "%d", pipesOut[i][0]);
-            sprintf(fd_out_str, "%d", pipesIn[i][1]);
+            close(pipesIn[j][0]);
+            close(pipesOut[j][1]);
 
-            if (i == 0)
-                execl("./joueurH", "joueurH", fd_in_str, fd_out_str, NULL);
+            char inStr[10], outStr[10];
+            sprintf(inStr, "%d", pipesOut[j][0]);
+            sprintf(outStr, "%d", pipesIn[j][1]);
+
+            if (j == 0)
+                execl("./joueurH", "joueurH", inStr, outStr, NULL);
             else
-                execl("./joueurR", "joueurR", fd_in_str, fd_out_str, NULL);
+                execl("./joueurR", "joueurR", inStr, outStr, NULL);
 
+            perror("execl");
             exit(1);
         }
 
-        // Processus gestionnaire
-        close(pipesIn[i][1]);
-        close(pipesOut[i][0]);
+        // gestionnaire conserve les bons côtés
+        close(pipesIn[j][1]);
+        close(pipesOut[j][0]);
     }
 
-    // --------------------------------------------
-    // GENERATION DU PAQUET ET DISTRIBUTION
-    // --------------------------------------------
+    // -----------------------------------------------------
+    // GÉNÉRATION DU PAQUET ET DISTRIBUTION
+    // -----------------------------------------------------
 
     Carte paquet[NB_CARTES_TOTAL];
     genererPaquet(paquet);
     melanger(paquet);
 
-    int indiceCarte = 0;
-
     Rangee rangees[NB_RANGEES];
-    initialiserRangees(rangees, paquet, &indiceCarte);
+    int idxCarte = 0;
 
-    // Distribuer les mains
+    initialiserRangees(rangees, paquet, &idxCarte);
+
+    int scores[MAX_JOUEURS] = {0};
+
+    // Distribution des mains
     for (int j = 0; j < nbJoueurs; j++) {
         Message msg;
         msg.type = MSG_INIT;
         msg.joueurID = j;
 
         for (int c = 0; c < NB_CARTES_MAIN; c++)
-            msg.mainJoueur[c] = paquet[indiceCarte++];
+            msg.mainJoueur[c] = paquet[idxCarte++];
 
         envoyerMessage(pipesOut[j][1], &msg);
     }
 
-    // --------------------------------------------
-    // JEU SUR 10 TOURS
-    // --------------------------------------------
+    // -----------------------------------------------------
+    // LES 10 TOURS DE LA PARTIE
+    // -----------------------------------------------------
 
     for (int tour = 0; tour < NB_CARTES_MAIN; tour++) {
 
         printf("\n===== TOUR %d =====\n", tour + 1);
         afficherRangeesServeur(rangees);
 
-        // Envoyer l'état des rangées à tous
+        // Envoyer rangées
         for (int j = 0; j < nbJoueurs; j++) {
-            Message msg;
-            msg.type = MSG_RANGEES;
-            memcpy(msg.rangees, rangees, sizeof(rangees));
-            envoyerMessage(pipesOut[j][1], &msg);
+            Message m;
+            m.type = MSG_RANGEES;
+            memcpy(m.rangees, rangees, sizeof(rangees));
+            envoyerMessage(pipesOut[j][1], &m);
         }
 
-        // Demander une carte
+        // Demander de jouer
         for (int j = 0; j < nbJoueurs; j++) {
-            Message msg;
-            msg.type = MSG_TOUR;
-            memcpy(msg.rangees, rangees, sizeof(rangees));
-            envoyerMessage(pipesOut[j][1], &msg);
+            Message m;
+            m.type = MSG_TOUR;
+            memcpy(m.rangees, rangees, sizeof(rangees));
+            envoyerMessage(pipesOut[j][1], &m);
         }
 
-        // Réception des cartes
-        Message reponses[nbJoueurs];
+        // Recevoir les cartes
+        Message rep[nbJoueurs];
         for (int j = 0; j < nbJoueurs; j++)
-            lireMessage(pipesIn[j][0], &reponses[j]);
+            lireMessage(pipesIn[j][0], &rep[j]);
 
-        // Trier les cartes par ordre croissant
-        for (int i = 0; i < nbJoueurs - 1; i++) {
-            for (int j = i + 1; j < nbJoueurs; j++) {
-                if (reponses[j].carte.numero < reponses[i].carte.numero) {
-                    Message tmp = reponses[i];
-                    reponses[i] = reponses[j];
-                    reponses[j] = tmp;
+        // Trier les cartes (croissant)
+        for (int a = 0; a < nbJoueurs - 1; a++) {
+            for (int b = a + 1; b < nbJoueurs; b++) {
+                if (rep[b].carte.numero < rep[a].carte.numero) {
+                    Message tmp = rep[a];
+                    rep[a] = rep[b];
+                    rep[b] = tmp;
                 }
             }
         }
 
-        // Placement des cartes
+        // TRAITEMENT des cartes
         for (int j = 0; j < nbJoueurs; j++) {
-            Carte cj = reponses[j].carte;
-            int idx = trouverRangeeCompatible(cj, rangees);
 
+            Carte c = rep[j].carte;
+            int id = rep[j].joueurID;
+
+            int idx = trouverRangeeCompatible(c, rangees);
+
+            // CAS 1 : aucune rangée compatible -> le joueur ramasse la moins pénalisante
             if (idx == -1) {
-                int piresTetes = 9999;
-                int pireIdx = 0;
+                int best = 0, bestScore = 99999;
                 for (int r = 0; r < NB_RANGEES; r++) {
-                    int s = sommeTetes(rangees[r]);
-                    if (s < piresTetes) {
-                        piresTetes = s;
-                        pireIdx = r;
+                    int s = sommeTetes(&rangees[r]);
+                    if (s < bestScore) {
+                        bestScore = s;
+                        best = r;
                     }
                 }
-                printf("J%d prend la rangée %d !\n", reponses[j].joueurID, pireIdx+1);
-                rangees[pireIdx].taille = 1;
-                rangees[pireIdx].cartes[0] = cj;
-            } else {
+
+                printf("J%d ne peut rien placer → ramasse la rangée %d (+%d points)\n",
+                       id, best + 1, bestScore);
+
+                scores[id] += bestScore;
+
+                rangees[best].taille = 1;
+                rangees[best].cartes[0] = c;
+            }
+
+            // CAS 2 : la rangée est compatible
+            else {
                 Rangee *r = &rangees[idx];
+
+                // Si elle est pleine → ramasser
                 if (r->taille == 5) {
-                    printf("J%d remplit la rangée %d !\n", reponses[j].joueurID, idx+1);
+                    int s = sommeTetes(r);
+                    printf("J%d complète la rangée %d → ramasse (+%d points)\n",
+                           id, idx + 1, s);
+
+                    scores[id] += s;
+
                     r->taille = 1;
-                    r->cartes[0] = cj;
-                } else {
-                    r->cartes[r->taille++] = cj;
+                    r->cartes[0] = c;
+                }
+
+                // Sinon on ajoute normalement
+                else {
+                    r->cartes[r->taille++] = c;
                 }
             }
         }
     }
 
-    // Fin de partie
+    // -----------------------------------------------------
+    // FIN DE PARTIE
+    // -----------------------------------------------------
+
+    printf("\n===== FIN DE PARTIE =====\n");
+    for (int j = 0; j < nbJoueurs; j++)
+        printf("Score J%d = %d\n", j, scores[j]);
+
+    // dire aux joueurs de se terminer
     for (int j = 0; j < nbJoueurs; j++) {
-        Message msg;
-        msg.type = MSG_FIN;
-        envoyerMessage(pipesOut[j][1], &msg);
+        Message m;
+        m.type = MSG_FIN;
+        envoyerMessage(pipesOut[j][1], &m);
     }
 
+    // attendre la terminaison des joueurs
     for (int j = 0; j < nbJoueurs; j++)
         waitpid(pids[j], NULL, 0);
 
-    printf("\n===== PARTIE TERMINÉE =====\n");
+    printf(">>> Tous les joueurs ont terminé.\n\n");
 
     return 0;
 }

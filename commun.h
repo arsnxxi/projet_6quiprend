@@ -5,54 +5,54 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-// --------------------------------------------
-// CONSTANTES DU JEU
-// --------------------------------------------
-
 #define NB_RANGEES 4
 #define NB_CARTES_MAIN 10
 #define NB_CARTES_TOTAL 104
+#define MAX_JOUEURS 10
 
 // --------------------------------------------
-// STRUCTURES DE BASE
+// STRUCTURES DU JEU
 // --------------------------------------------
 
 typedef struct {
-    int numero;       // numéro de la carte (1 à 104)
-    int teteBoeufs;   // pénalité de la carte
+    int numero;       // 1 à 104
+    int teteBoeufs;   // poids de la carte
 } Carte;
 
 typedef struct {
-    Carte cartes[5];  // 5 cartes max par rangée
-    int taille;        // nombre de cartes dans la rangée (0-5)
+    Carte cartes[5];  // jusqu'à 5 cartes
+    int taille;
 } Rangee;
 
 typedef struct {
-    Rangee rangees[NB_RANGEES];
+    int scores[MAX_JOUEURS];
     int nbJoueurs;
-    int scores[10]; // max 10 joueurs
-} Partie;
+    Rangee rangees[NB_RANGEES];
+} EtatPartie;
+
 
 // --------------------------------------------
-// TYPES DE MESSAGES ECHANGES PAR PIPE
+// MESSAGES ÉCHANGÉS ENTRE PROCESSUS
 // --------------------------------------------
 
 typedef enum {
-    MSG_INIT,         // le gestionnaire envoie la main initiale
-    MSG_TOUR,         // début d'un nouveau tour : le joueur doit renvoyer une carte
-    MSG_RANGEES,      // le gestionnaire envoie l’état des rangées
-    MSG_FIN,          // fin de partie
-    MSG_CARTE         // message contenant une carte choisie par le joueur
+    MSG_INIT,      // Envoi de la main initiale
+    MSG_RANGEES,   // Envoi de l’état des rangées
+    MSG_TOUR,      // Le joueur doit jouer une carte
+    MSG_CARTE,     // Réponse du joueur = une carte
+    MSG_FIN,       // Fin de partie
+    MSG_SCORE      // Mise à jour des scores (optionnel)
 } TypeMessage;
 
 
-// Message générique circulant dans les pipes
 typedef struct {
     TypeMessage type;
-    Carte carte;      // utilisé pour MSG_CARTE
-    Carte mainJoueur[NB_CARTES_MAIN];  // pour MSG_INIT
-    Rangee rangees[NB_RANGEES];        // pour MSG_RANGEES
-    int joueurID;     // numéro du joueur
+    int joueurID;
+
+    Carte carte;                      // utilisé dans MSG_CARTE
+    Carte mainJoueur[NB_CARTES_MAIN]; // pour MSG_INIT
+    Rangee rangees[NB_RANGEES];       // pour MSG_RANGEES
+    int scores[MAX_JOUEURS];          // pour MSG_SCORE
 } Message;
 
 #endif

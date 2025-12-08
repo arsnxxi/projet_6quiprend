@@ -1,65 +1,62 @@
 #include "commun.h"
+#include <string.h>
 
 // ---------------------------------------------------------
-// FONCTIONS UTILISANT L'IA SIMPLE (issues de ton ancien code)
+// IA SIMPLE : version propre et conforme au 6 qui prend
 // ---------------------------------------------------------
 
-// Retourne 1 si la carte peut être placée dans la rangée
-int peutPlacerCarteDansRangee(Carte carte, Rangee r) {
-    if (r.taille == 0) return 1;
-    return carte.numero > r.cartes[r.taille - 1].numero;
+int peutPlacer(Carte c, Rangee *r) {
+    if (r->taille == 0) return 1;
+    return c.numero > r->cartes[r->taille - 1].numero;
 }
 
-// Trouve la rangée compatible avec le plus petit écart
-int trouverIndiceRangeeCompatible(Carte carte, Rangee rangees[]) {
-    int meilleurIndice = -1;
-    int meilleurEcart = 9999;
+int trouverRangeeCompatible(Carte c, Rangee rangees[]) {
+    int idx = -1;
+    int ecartMin = 99999;
 
     for (int i = 0; i < NB_RANGEES; i++) {
-        if (peutPlacerCarteDansRangee(carte, rangees[i])) {
-            int dernier = rangees[i].cartes[rangees[i].taille - 1].numero;
-            int ecart = carte.numero - dernier;
+        if (rangees[i].taille == 0) continue;
 
-            if (ecart < meilleurEcart) {
-                meilleurEcart = ecart;
-                meilleurIndice = i;
+        int dernier = rangees[i].cartes[rangees[i].taille - 1].numero;
+
+        if (c.numero > dernier) {
+            int ecart = c.numero - dernier;
+            if (ecart < ecartMin) {
+                ecartMin = ecart;
+                idx = i;
             }
         }
     }
-    return meilleurIndice;
+    return idx;
 }
 
-// Choisir une carte simple : la plus petite jouable, ou la plus petite tout court
-Carte choisirCarteIA(Carte main[], int tailleMain, Rangee rangees[]) {
-    int meilleurIndex = -1;
-    int meilleureValeur = 9999;
+Carte choisirCarteIA(Carte main[], int nbCartes, Rangee rangees[]) {
+    int meilleur = -1;
+    int valeurMin = 99999;
 
-    for (int i = 0; i < tailleMain; i++) {
-        Carte c = main[i];
-
-        // Si jouable, on préfère les petites cartes jouables
-        int idx = trouverIndiceRangeeCompatible(c, rangees);
+    // 1) essayer de jouer la plus petite carte compatible
+    for (int i = 0; i < nbCartes; i++) {
+        int idx = trouverRangeeCompatible(main[i], rangees);
         if (idx != -1) {
-            if (c.numero < meilleureValeur) {
-                meilleureValeur = c.numero;
-                meilleurIndex = i;
+            if (main[i].numero < valeurMin) {
+                valeurMin = main[i].numero;
+                meilleur = i;
             }
         }
     }
 
-    // Si aucune carte n'est jouable, on joue la plus petite carte tout court
-    if (meilleurIndex == -1) {
-        for (int i = 0; i < tailleMain; i++) {
-            if (main[i].numero < meilleureValeur) {
-                meilleureValeur = main[i].numero;
-                meilleurIndex = i;
+    // 2) si aucune carte n'est compatible, jouer la plus petite
+    if (meilleur == -1) {
+        for (int i = 0; i < nbCartes; i++) {
+            if (main[i].numero < valeurMin) {
+                valeurMin = main[i].numero;
+                meilleur = i;
             }
         }
     }
 
-    return main[meilleurIndex];
+    return main[meilleur];
 }
-
 
 // ---------------------------------------------------------
 // PROCESSUS PRINCIPAL DU JOUEUR ROBOT
@@ -67,19 +64,16 @@ Carte choisirCarteIA(Carte main[], int tailleMain, Rangee rangees[]) {
 
 int main(int argc, char *argv[]) {
 
-    int fd_in = atoi(argv[1]);   // pipe lecture : gestionnaire -> joueur
-    int fd_out = atoi(argv[2]);  // pipe écriture : joueur -> gestionnaire
+    int fd_in = atoi(argv[1]);   // pipe lecture (gestionnaire -> joueur)
+    int fd_out = atoi(argv[2]);  // pipe écriture (joueur -> gestionnaire)
 
     Message msg;
     Carte mainJoueur[NB_CARTES_MAIN];
-
-    int cartesRestantes = NB_CARTES_MAIN;
+    int nbCartes = NB_CARTES_MAIN;
     int joueurID = -1;
 
-    // Boucle principale du joueur
     while (1) {
 
-        // Lire un message du gestionnaire
         if (read(fd_in, &msg, sizeof(Message)) <= 0)
             break;
 
@@ -87,43 +81,41 @@ int main(int argc, char *argv[]) {
 
             case MSG_INIT:
                 joueurID = msg.joueurID;
-                for (int i = 0; i < NB_CARTES_MAIN; i++)
-                    mainJoueur[i] = msg.mainJoueur[i];
+                memcpy(mainJoueur, msg.mainJoueur, sizeof(mainJoueur));
                 break;
 
             case MSG_RANGEES:
-                // Le gestionnaire envoie les rangées : juste les stocker dans msg
+                // juste mis à jour dans msg, rien à faire
                 break;
 
             case MSG_TOUR: {
-                // Choisir une carte
-                Carte c = choisirCarteIA(mainJoueur, cartesRestantes, msg.rangees);
 
-                // Retirer la carte de la main
+                // choisir une carte via IA
+                Carte c = choisirCarteIA(mainJoueur, nbCartes, msg.rangees);
+
+                // la retirer de la main
                 int index = -1;
-                for (int i = 0; i < cartesRestantes; i++) {
+                for (int i = 0; i < nbCartes; i++) {
                     if (mainJoueur[i].numero == c.numero) {
                         index = i;
                         break;
                     }
                 }
-                for (int j = index; j < cartesRestantes - 1; j++)
-                    mainJoueur[j] = mainJoueur[j + 1];
+                for (int i = index; i < nbCartes - 1; i++)
+                    mainJoueur[i] = mainJoueur[i + 1];
+                nbCartes--;
 
-                cartesRestantes--;
-
-                // Envoyer la carte au gestionnaire
+                // envoyer la réponse
                 Message rep;
                 rep.type = MSG_CARTE;
-                rep.carte = c;
                 rep.joueurID = joueurID;
+                rep.carte = c;
 
                 write(fd_out, &rep, sizeof(Message));
                 break;
             }
 
             case MSG_FIN:
-                // Le gestionnaire termine le joueur
                 close(fd_in);
                 close(fd_out);
                 return 0;
