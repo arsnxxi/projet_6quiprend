@@ -16,7 +16,7 @@
 
 typedef struct {
     int numero;       // 1 à 104
-    int teteBoeufs;   // poids de la carte
+    int tete;   // poids de la carte
 } Carte;
 
 typedef struct {

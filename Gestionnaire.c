@@ -22,7 +22,7 @@ int calculerTetes(int numero) {
 void genererPaquet(Carte *paquet) {
     for (int i = 0; i < NB_CARTES_TOTAL; i++) {
         paquet[i].numero = i + 1;
-        paquet[i].teteBoeufs = calculerTetes(i + 1);
+        paquet[i].tete = calculerTetes(i + 1);
     }
 }
 
@@ -54,7 +54,7 @@ void afficherRangeesServeur(Rangee r[]) {
         for (int j = 0; j < r[i].taille; j++) {
             printf("[%d (%d)] ",
                 r[i].cartes[j].numero,
-                r[i].cartes[j].teteBoeufs
+                r[i].cartes[j].tete
             );
         }
         printf("\n");
@@ -68,7 +68,7 @@ void afficherRangeesServeur(Rangee r[]) {
 int sommeTetes(Rangee *r) {
     int tot = 0;
     for (int i = 0; i < r->taille; i++)
-        tot += r->cartes[i].teteBoeufs;
+        tot += r->cartes[i].tete;
     return tot;
 }
 

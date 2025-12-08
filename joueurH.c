@@ -12,7 +12,7 @@ void afficherRangees(Rangee rangees[]) {
         for (int j = 0; j < rangees[i].taille; j++) {
             printf("[%d (%d)] ",
                 rangees[i].cartes[j].numero,
-                rangees[i].cartes[j].teteBoeufs
+                rangees[i].cartes[j].tete
             );
         }
         printf("\n");
@@ -26,7 +26,7 @@ void afficherMain(Carte main[], int taille) {
         printf("%d : Carte %d (%d têtes)\n",
             i,
             main[i].numero,
-            main[i].teteBoeufs
+            main[i].tete
         );
     }
     printf("======================\n");
