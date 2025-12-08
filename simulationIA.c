@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <time.h>
 
+#define NB_EXEMPLES 10000
 
-
-#define NB_EXEMPLES 10
+/* ===================== UTILITAIRES ====================== */
 
 int calculerTetes(int numero) {
     if (numero == 55) return 7;
@@ -15,26 +15,44 @@ int calculerTetes(int numero) {
     return 1;
 }
 
+/* Calcule la somme réelle des têtes dans une rangée */
+int sommeTetesRangee(Rangee *r) {
+    int sum = 0;
+    for (int i = 0; i < r->taille; i++)
+        sum += r->cartes[i].tete;
+    return sum;
+}
+
+
+/* ===================== FEATURES ====================== */
+
 typedef struct {
     int top;
+    int dist;
     int tetes;
     int taille;
     int risque;
 } RangInfo;
 
-void extract_features(Carte carte, Rangee r[], float out[21]) {
-
+void extract_features(Carte carte, Rangee r[4], float out[21])
+{
     RangInfo info[4];
 
-    // remplir la structure
     for (int i = 0; i < 4; i++) {
-        info[i].top = r[i].cartes[r[i].taille - 1].numero;
-        info[i].tetes = r[i].cartes[r[i].taille-1].tete;
-        info[i].taille = r[i].taille;
-        info[i].risque = (r[i].taille >= 4) ? 1 : 0;
+
+        int top = r[i].cartes[r[i].taille - 1].numero;
+        int tetes = sommeTetesRangee(&r[i]);
+        int taille = r[i].taille;
+        int risque = (taille == 5 || taille==4);
+
+        info[i].top = top;
+        info[i].dist = carte.numero - top;
+        info[i].tetes = tetes;
+        info[i].taille = taille;
+        info[i].risque = risque;
     }
 
-    // trier selon info.top (croissant)
+    // Tri des 4 rangées par carte top croissante
     for (int i = 0; i < 4; i++) {
         for (int j = i + 1; j < 4; j++) {
             if (info[j].top < info[i].top) {
@@ -45,125 +63,99 @@ void extract_features(Carte carte, Rangee r[], float out[21]) {
         }
     }
 
-    // 0 : carte jouée
+    // 0 = numéro de la carte jouée
     out[0] = carte.numero;
 
-    // features 1–4 : tops triés
-    for (int i = 0; i < 4; i++)
-        out[1 + i] = info[i].top;
-
-    // features 5–8 : distances
-    for (int i = 0; i < 4; i++)
-        out[5 + i] = carte.numero - info[i].top;
-
-    // features 9–12 : têtes
-    for (int i = 0; i < 4; i++)
-        out[9 + i] = info[i].tetes;
-
-    // features 13–16 : taille
-    for (int i = 0; i < 4; i++)
-        out[13 + i] = info[i].taille;
-
-    // features 17–20 : risque
-    for (int i = 0; i < 4; i++)
-        out[17 + i] = info[i].risque;
+    for (int i = 0; i < 4; i++) out[1 + i] = info[i].top;
+    for (int i = 0; i < 4; i++) out[5 + i] = info[i].dist;
+    for (int i = 0; i < 4; i++) out[9 + i] = info[i].tetes;
+    for (int i = 0; i < 4; i++) out[13 + i] = info[i].taille;
+    for (int i = 0; i < 4; i++) out[17 + i] = info[i].risque;
 }
 
 
+/* ===================== IA SIMPLE ====================== */
 
-
-
-
-int trouverRangeeCompatible(Carte c, Rangee rangees[]) {
-    int idx = -1;
+int trouverRangeeCompatible(Carte c, Rangee rangees[])
+{
+    int best = -1;
     int ecartMin = 99999;
 
-    for (int i = 0; i < NB_RANGEES; i++) {
-        if (rangees[i].taille == 0) continue;
+    for (int i = 0; i < 4; i++) {
+        int top = rangees[i].cartes[rangees[i].taille - 1].numero;
 
-        int dernier = rangees[i].cartes[rangees[i].taille - 1].numero;
-
-        if (c.numero > dernier) {
-            int ecart = c.numero - dernier;
-            if (ecart < ecartMin) {
-                ecartMin = ecart;
-                idx = i;
+        if (c.numero > top) {
+            int e = c.numero - top;
+            if (e < ecartMin) {
+                ecartMin = e;
+                best = i;
             }
         }
     }
-    return idx;
+    return best;
 }
 
-Carte decision_ia_simple(Carte main[], int n, Rangee r[]) {
-    int meilleur = -1;
-    int valeurMin = 99999;
-
-    // 1) essayer de jouer la plus petite carte compatible
-    for (int i = 0; i < n; i++) {
-        int idx = trouverRangeeCompatible(main[i], r);
-        if (idx != -1) {
-            if (main[i].numero < valeurMin) {
-                valeurMin = main[i].numero;
-                meilleur = i;
-            }
-        }
-    }
-
-    // 2) si aucune carte n'est compatible, jouer la plus petite
-    if (meilleur == -1) {
-        for (int i = 0; i < n; i++) {
-            if (main[i].numero < valeurMin) {
-                valeurMin = main[i].numero;
-                meilleur = i;
-            }
-        }
-    }
-
-    return main[meilleur];
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-void generer_situation(Carte *maCarte, Rangee r[4],Carte main1[10], Carte main2[10], Carte main3[10]) 
+Carte decision_ia_simple(Carte main[], int n, Rangee r[])
 {
-    // 1) Générer LA carte de l'IA (test)
+    int bestIdx = -1;
+    int bestVal = 99999;
+
+    // Cherche plus petite compatible
+    for (int i = 0; i < n; i++) {
+        if (main[i].numero < bestVal) {
+            int found = trouverRangeeCompatible(main[i], r);
+            if (found != -1) {
+                bestVal = main[i].numero;
+                bestIdx = i;
+            }
+        }
+    }
+
+    // Sinon: plus petite carte
+    if (bestIdx == -1) {
+        bestVal = 99999;
+        for (int i = 0; i < n; i++) {
+            if (main[i].numero < bestVal) {
+                bestIdx = i;
+                bestVal = main[i].numero;
+            }
+        }
+    }
+
+    return main[bestIdx];
+}
+
+
+/* ===================== GENERATION ====================== */
+
+void generer_situation(Carte *maCarte, Rangee r[4],
+                       Carte main1[10], Carte main2[10], Carte main3[10])
+{
+    // Carte de test
     maCarte->numero = rand() % 104 + 1;
     maCarte->tete = calculerTetes(maCarte->numero);
 
-    // 2) Générer 4 rangées cohérentes
+    // Génération rangées réalistes
     for (int i = 0; i < 4; i++) {
-        int top = rand() % 104 + 1;       // top card anywhere 1-104
-        int taille = rand() % 5 + 1;      // profondeur 1..5
 
-        // Remplir la rangée minimale (UNIQUEMENT top)
+        int top = rand() % 104 + 1;
+        int taille = rand() % 5 + 1;
+
         r[i].taille = taille;
-        r[i].cartes[r[i].taille-1].numero = top;
-        r[i].cartes[r[i].taille-1].tete = calculerTetes(top);
 
-        // Générer la somme des têtes en fonction de la taille
-        int totalTetes = r[i].cartes[r[i].taille-1].tete;
-        for (int k = 0; k < taille-1; k++) {
-            int t = calculerTetes(rand() % 104 + 1);
-            totalTetes += t;
+        // Remplit une rangée strictement croissante
+        int value = top - (taille - 1);
+        if (value < 1) value = 1;
+
+        for (int k = 0; k < taille; k++) {
+            r[i].cartes[k].numero = value + k;
+            r[i].cartes[k].tete = calculerTetes(value + k);
         }
-
-        // Stocker les têtes dans toutes les cartes par la dernière
-        
-        r[i].cartes[r[i].taille-1].tete = totalTetes;
     }
 
-    // 3) Générer 3 mains adverses (cartes aléatoires)
+    // Mains adverses
     for (int i = 0; i < 10; i++) {
+
         main1[i].numero = rand() % 104 + 1;
         main1[i].tete = calculerTetes(main1[i].numero);
 
@@ -176,22 +168,24 @@ void generer_situation(Carte *maCarte, Rangee r[4],Carte main1[10], Carte main2[
 }
 
 
-int calculer_label(Carte maCarte, Rangee r[4],
+/* ===================== SIMULATION (LABEL) ====================== */
+
+int calculer_label(Carte maCarte, Rangee rin[4],
                    Carte main1[10], Carte main2[10], Carte main3[10])
 {
+    // On copie les rangées pour ne PAS modifier celles du dataset
+    Rangee r[4];
+    for (int i = 0; i < 4; i++) r[i] = rin[i];
+
     Carte played[4];
-
-    // 1) Ta carte
     played[0] = maCarte;
+    played[1] = decision_ia_simple(main1, 10, r);
+    played[2] = decision_ia_simple(main2, 10, r);
+    played[3] = decision_ia_simple(main3, 10, r);
 
-    // 2) Cartes adverses
-    played[1] = decision_ia_simple(main1,10, r);
-    played[2] = decision_ia_simple(main2,10, r);
-    played[3] = decision_ia_simple(main3,10, r);
-
-    // 3) Trier les cartes jouées par ordre croissant
+    // Trier les cartes jouées
     for (int i = 0; i < 4; i++) {
-        for (int j = i+1; j < 4; j++) {
+        for (int j = i + 1; j < 4; j++) {
             if (played[j].numero < played[i].numero) {
                 Carte tmp = played[i];
                 played[i] = played[j];
@@ -202,94 +196,82 @@ int calculer_label(Carte maCarte, Rangee r[4],
 
     int tetes_prises = 0;
 
-    // 4) Simuler les 4 placements
     for (int p = 0; p < 4; p++) {
+
         Carte c = played[p];
-        int joueur_est_moi = (c.numero == maCarte.numero);
+        int estMoi = (c.numero == maCarte.numero);
 
-        int bestIdx = -1;
-        int ecartMin = 9999;
+        int idx = trouverRangeeCompatible(c, r);
 
-        // Chercher rangée compatible
-        for (int i = 0; i < 4; i++) {
-            int top = r[i].cartes[r[i].taille - 1].numero;
-            if (c.numero > top) {
-                int ecart = c.numero - top;
-                if (ecart < ecartMin) {
-                    ecartMin = ecart;
-                    bestIdx = i;
-                }
-            }
-        }
+        // Si aucune compatible → ramasse la moins coûteuse
+        if (idx == -1) {
 
-        // Si aucune compatible → ramasser la rangée la moins coûteuse
-        if (bestIdx == -1) {
-            int minTetes = 9999;
-            int idxMin = 0;
+            int minT = 99999;
+            int best = 0;
+
             for (int i = 0; i < 4; i++) {
-                if (r[i].cartes[r[i].taille-1].tete < minTetes) {
-                    minTetes = r[i].cartes[r[i].taille-1].tete;
-                    idxMin = i;
+                int t = sommeTetesRangee(&r[i]);
+                if (t < minT) {
+                    minT = t;
+                    best = i;
                 }
             }
 
-            if (joueur_est_moi) tetes_prises += r[idxMin].cartes[r[idxMin].taille-1].tete;
+            if (estMoi) tetes_prises += sommeTetesRangee(&r[best]);
 
-            // Réinitialiser la rangée avec la carte jouée
-            r[idxMin].taille = 1;
-            r[idxMin].cartes[0] = c;
-            r[idxMin].cartes[r[idxMin].taille-1].tete = c.tete;
-
+            r[best].taille = 1;
+            r[best].cartes[0] = c;
             continue;
         }
 
-        // Rangée compatible → vérifier si pleine
-        if (r[bestIdx].taille == 5) {
-            // ramassage
-            if (joueur_est_moi) tetes_prises += r[bestIdx].cartes[r[bestIdx].taille-1].tete;
+        // Compatible mais pleine ?
+        if (r[idx].taille == 5) {
 
-            r[bestIdx].taille = 1;
-            r[bestIdx].cartes[0] = c;
-            r[bestIdx].cartes[r[bestIdx].taille].tete = c.tete;
+            if (estMoi) tetes_prises += sommeTetesRangee(&r[idx]);
 
+            r[idx].taille = 1;
+            r[idx].cartes[0] = c;
             continue;
         }
 
-        // Sinon on pose simplement la carte
-        int pos = r[bestIdx].taille;
-        r[bestIdx].cartes[pos] = c;
-        r[bestIdx].cartes[r[bestIdx].taille-1].tete += c.tete;
-        r[bestIdx].taille++;
+        // Sinon poser dans la rangée
+        r[idx].cartes[r[idx].taille] = c;
+        r[idx].taille++;
     }
 
     return tetes_prises;
 }
 
 
+/* ===================== MAIN ====================== */
+
 int main() {
+
     srand(time(NULL));
+
     FILE *f = fopen("dataset.csv", "w");
+    if (!f) {
+        printf("Erreur ouverture fichier\n");
+        return 1;
+    }
 
     for (int i = 0; i < NB_EXEMPLES; i++) {
 
         Carte maCarte;
         Rangee rangees[4];
+        Carte main1[10], main2[10], main3[10];
 
-        Carte main1[10];
-        Carte main2[10];
-        Carte main3[10];
-
-        // Génère une situation complète
+        // Génération situation
         generer_situation(&maCarte, rangees, main1, main2, main3);
 
-        // Extract features
+        // Features
         float features[21];
         extract_features(maCarte, rangees, features);
 
-        // Simule le tour et calcule le label
+        // Label
         int label = calculer_label(maCarte, rangees, main1, main2, main3);
 
-        // Écriture CSV
+        // CSV
         for (int j = 0; j < 21; j++)
             fprintf(f, "%f,", features[j]);
 
