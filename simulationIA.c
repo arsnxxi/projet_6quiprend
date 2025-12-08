@@ -64,12 +64,12 @@ void extract_features(Carte carte, Rangee r[4], float out[21])
     }
 
     // 0 = numéro de la carte jouée
-    out[0] = carte.numero;
+    out[0] = carte.numero/104.0f;
 
-    for (int i = 0; i < 4; i++) out[1 + i] = info[i].top;
-    for (int i = 0; i < 4; i++) out[5 + i] = info[i].dist;
-    for (int i = 0; i < 4; i++) out[9 + i] = info[i].tetes;
-    for (int i = 0; i < 4; i++) out[13 + i] = info[i].taille;
+    for (int i = 0; i < 4; i++) out[1 + i] = info[i].top/104.0f;
+    for (int i = 0; i < 4; i++) out[5 + i] = (info[i].dist + 100.0f) / 200.0f; //normalisation
+    for (int i = 0; i < 4; i++) out[9 + i] = info[i].tetes / 15.0f;
+    for (int i = 0; i < 4; i++) out[13 + i] = info[i].taille / 5.0f;
     for (int i = 0; i < 4; i++) out[17 + i] = info[i].risque;
 }
 
